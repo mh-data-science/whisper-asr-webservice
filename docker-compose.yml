@@ -6,7 +6,10 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      - ASR_MODEL=base
+      - ASR_MODEL=tiny
+      - PORT=9000
+      - API_USERNAME=test
+      - API_PASSWORD=test
     ports:
       - 9000:9000
     volumes:

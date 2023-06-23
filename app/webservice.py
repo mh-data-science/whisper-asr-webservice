@@ -9,7 +9,12 @@ from fastapi import FastAPI, File, UploadFile, Query, applications
 from fastapi.responses import StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.security import HTTPBasicCredentials, HTTPBasic
 from whisper import tokenizer
+
+
+API_USERNAME = os.getenv("API_USERNAME", None)
+API_PASSWORD = os.getenv("API_PASSWORD", None)
 
 ASR_ENGINE = os.getenv("ASR_ENGINE", "openai_whisper")
 if ASR_ENGINE == "faster_whisper":
@@ -48,6 +53,22 @@ if path.exists(assets_path + "/swagger-ui.css") and path.exists(assets_path + "/
         )
     applications.get_swagger_ui_html = swagger_monkey_patch
 
+
+def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(
+        credentials.username, API_USERNAME
+    )
+    correct_password = secrets.compare_digest(
+        credentials.password, API_PASSWORD
+    )
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
 @app.get("/", response_class=RedirectResponse, include_in_schema=False)
 async def index():
     return "/docs"
@@ -64,7 +85,8 @@ def asr(
         default=False, 
         description="World level timestamps", 
         include_in_schema=(True if ASR_ENGINE == "faster_whisper" else False)
-    )
+    ),
+    username: str = Depends(get_current_username)
 ):
     result = transcribe(load_audio(audio_file.file, encode), task, language, initial_prompt, word_timestamps, output)
     return StreamingResponse(
@@ -78,7 +100,8 @@ def asr(
 @app.post("/detect-language", tags=["Endpoints"])
 def detect_language(
     audio_file: UploadFile = File(...),
-    encode : bool = Query(default=True, description="Encode audio first through ffmpeg")
+    encode : bool = Query(default=True, description="Encode audio first through ffmpeg"),
+    username: str = Depends(get_current_username)
 ):
     detected_lang_code = language_detection(load_audio(audio_file.file, encode))
     return { "detected_language": tokenizer.LANGUAGES[detected_lang_code], "language_code" : detected_lang_code }
